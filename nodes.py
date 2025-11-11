@@ -22,8 +22,8 @@ class PainterLongVideo:
             "optional": {
                 "initial_reference_image": ("IMAGE",),
                 "clip_vision_output": ("CLIP_VISION_OUTPUT",),
-                "start_image": ("IMAGE",),   # 新增：首帧
-                "end_image": ("IMAGE",),     # 新增：尾帧
+                "start_image": ("IMAGE",),   # 首帧（可选）
+                "end_image": ("IMAGE",),     # 尾帧（可选）
             }
         }
 
@@ -54,23 +54,34 @@ class PainterLongVideo:
         latent_timesteps = ((length - 1) // 4) + 1
         latent = torch.zeros([batch_size, 16, latent_timesteps, height // 8, width // 8], device=device)
 
-        # === Step 1: 决定是否使用首尾帧模式 ===
-        use_first_last_mode = (start_image is not None) or (end_image is not None)
+        has_start = start_image is not None
+        has_end = end_image is not None
 
-        if use_first_last_mode:
-            # --- 官方 WanFirstLastFrameToVideo 逻辑 ---
-            image = torch.ones((length, height, width, 3), device=device, dtype=torch.float32) * 0.5
-            mask = torch.ones((1, 1, latent_timesteps * 4, height // 8, width // 8), device=device, dtype=torch.float32)
+        # 默认值
+        image = torch.ones((length, height, width, 3), device=device, dtype=torch.float32) * 0.5
+        mask = torch.ones((1, 1, latent_timesteps * 4, height // 8, width // 8), device=device, dtype=torch.float32)
 
-            if start_image is not None:
+        ref_motion_latent = None
+
+        if has_start or has_end:
+            # === 情况1：有 start 或 end（或两者都有）===
+            if has_start:
                 start_img = comfy.utils.common_upscale(
                     start_image[:length].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
                 actual_start_len = min(start_img.shape[0], length)
                 image[:actual_start_len] = start_img[:actual_start_len]
                 mask[:, :, :actual_start_len + 3] = 0.0
+            else:
+                # 没有 start_image → 用 previous_video 最后一帧作为第0帧
+                last_frame = previous_video[-1:].clone()
+                last_frame_resized = comfy.utils.common_upscale(
+                    last_frame.movedim(-1, 1), width, height, "bilinear", "center"
+                ).movedim(1, -1)
+                image[0] = last_frame_resized[0]
+                mask[:, :, :1 + 3] = 0.0  # 保护首帧（含缓冲）
 
-            if end_image is not None:
+            if has_end:
                 end_img = comfy.utils.common_upscale(
                     end_image[-length:].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
@@ -78,11 +89,11 @@ class PainterLongVideo:
                 image[-actual_end_len:] = end_img[-actual_end_len:]
                 mask[:, :, -actual_end_len:] = 0.0
 
+            # 编码图像
             concat_latent_image = vae.encode(image[:, :, :, :3])
             mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
 
-            # reference_motion 和 initial_reference_image 在首尾模式下仍可使用（可选增强）
-            ref_motion_latent = None
+            # 提取运动参考（仅当有 previous_video 且非纯首尾模式时有意义）
             if previous_video is not None and previous_video.shape[0] >= 2:
                 ref_motion = previous_video[-min(73, previous_video.shape[0]):].clone()
                 ref_motion = comfy.utils.common_upscale(
@@ -96,7 +107,7 @@ class PainterLongVideo:
                 ref_motion_latent = ref_motion_latent_temp[:, :, -19:]
 
         else:
-            # --- 原有 PainterLongVideo 逻辑 ---
+            # === 情况2：无 start/end → 原有逻辑 ===
             last_frame = previous_video[-1:].clone()
             last_frame_resized = comfy.utils.common_upscale(
                 last_frame.movedim(-1, 1), width, height, "bilinear", "center"
@@ -134,7 +145,7 @@ class PainterLongVideo:
             ref_motion_latent = vae.encode(ref_motion_resized[:, :, :, :3])
             ref_motion_latent = ref_motion_latent[:, :, -19:]
 
-        # === Step 2: 构建 reference_latents ===
+        # === 构建 reference_latents ===
         ref_latents = []
         # (a) 上一段最后一帧（始终添加）
         last_frame_for_ref = previous_video[-1:]
@@ -153,7 +164,7 @@ class PainterLongVideo:
             init_latent = vae.encode(init_img_resized[:, :, :, :3])
             ref_latents.append(init_latent)
 
-        # === Step 3: 注入 conditioning ===
+        # === 注入 conditioning ===
         def inject_conditioning(cond, values_dict):
             new_cond = []
             for c_tensor, c_dict in cond:
@@ -177,7 +188,7 @@ class PainterLongVideo:
             "concat_latent_image": concat_latent_image,
             "concat_mask": mask,
         }
-        if not use_first_last_mode or (use_first_last_mode and ref_motion_latent is not None):
+        if ref_motion_latent is not None:
             shared_values["reference_motion"] = ref_motion_latent
 
         pos_out = inject_conditioning(positive, shared_values)

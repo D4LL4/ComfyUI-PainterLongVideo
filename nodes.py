@@ -15,15 +15,15 @@ class PainterLongVideo:
                 "height": ("INT", {"default": 480, "min": 16, "max": 8192, "step": 16}),
                 "length": ("INT", {"default": 81, "min": 1, "max": 1000, "step": 1}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
-                "previous_video": ("IMAGE",),
                 "motion_frames": ("INT", {"default": 5, "min": 1, "max": 20}),
                 "motion_amplitude": ("FLOAT", {"default": 1.15, "min": 1.0, "max": 2.0, "step": 0.05}),
             },
             "optional": {
+                "previous_video": ("IMAGE",),          # 现在是可选
                 "initial_reference_image": ("IMAGE",),
                 "clip_vision_output": ("CLIP_VISION_OUTPUT",),
-                "start_image": ("IMAGE",),   # 首帧（可选）
-                "end_image": ("IMAGE",),     # 尾帧（可选）
+                "start_image": ("IMAGE",),             # 首帧
+                "end_image": ("IMAGE",),               # 尾帧
             }
         }
 
@@ -42,9 +42,9 @@ class PainterLongVideo:
         height,
         length,
         batch_size,
-        previous_video,
         motion_frames,
         motion_amplitude=1.15,
+        previous_video=None,
         initial_reference_image=None,
         clip_vision_output=None,
         start_image=None,
@@ -54,32 +54,40 @@ class PainterLongVideo:
         latent_timesteps = ((length - 1) // 4) + 1
         latent = torch.zeros([batch_size, 16, latent_timesteps, height // 8, width // 8], device=device)
 
+        # ---------- 1. 收集开关 ----------
+        has_prev = previous_video is not None
         has_start = start_image is not None
-        has_end = end_image is not None
+        has_end   = end_image   is not None
 
-        # 默认值
-        image = torch.ones((length, height, width, 3), device=device, dtype=torch.float32) * 0.5
-        mask = torch.ones((1, 1, latent_timesteps * 4, height // 8, width // 8), device=device, dtype=torch.float32)
+        # ---------- 2. 无输入直接报错 ----------
+        if not has_prev and not has_start and not has_end:
+            raise RuntimeError("PainterLongVideo: 必须接入 previous_video、start_image、end_image 中的至少一个！")
 
-        ref_motion_latent = None
+        # ---------- 3. 构造统一的 image / mask ----------
+        # 默认值：灰色画布
+        image = torch.full((length, height, width, 3), 0.5, device=device, dtype=torch.float32)
+        mask  = torch.ones((1, 1, latent_timesteps * 4, height // 8, width // 8), device=device, dtype=torch.float32)
 
+        # ---------- 4. 按优先级分支 ----------
         if has_start or has_end:
-            # === 情况1：有 start 或 end（或两者都有）===
+            # 分支 A/B：只要接了 start 或 end，就以「首尾帧」逻辑为准
             if has_start:
                 start_img = comfy.utils.common_upscale(
                     start_image[:length].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
                 actual_start_len = min(start_img.shape[0], length)
                 image[:actual_start_len] = start_img[:actual_start_len]
-                mask[:, :, :actual_start_len + 3] = 0.0
+                mask[:, :, :actual_start_len + 3] = 0.0   # 保护首帧（含缓冲）
             else:
-                # 没有 start_image → 用 previous_video 最后一帧作为第0帧
-                last_frame = previous_video[-1:].clone()
-                last_frame_resized = comfy.utils.common_upscale(
-                    last_frame.movedim(-1, 1), width, height, "bilinear", "center"
-                ).movedim(1, -1)
-                image[0] = last_frame_resized[0]
-                mask[:, :, :1 + 3] = 0.0  # 保护首帧（含缓冲）
+                # 没给 start，但给了 end → 把 previous_video 最后一帧当首帧
+                if has_prev:
+                    last_frame = previous_video[-1:].clone()
+                    last_frame_resized = comfy.utils.common_upscale(
+                        last_frame.movedim(-1, 1), width, height, "bilinear", "center"
+                    ).movedim(1, -1)
+                    image[0] = last_frame_resized[0]
+                    mask[:, :, :1 + 3] = 0.0
+                # 如果既没有 start 也没有 prev，却走到这里，说明只接了 end，也允许继续
 
             if has_end:
                 end_img = comfy.utils.common_upscale(
@@ -89,12 +97,12 @@ class PainterLongVideo:
                 image[-actual_end_len:] = end_img[-actual_end_len:]
                 mask[:, :, -actual_end_len:] = 0.0
 
-            # 编码图像
             concat_latent_image = vae.encode(image[:, :, :, :3])
             mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
 
-            # 提取运动参考（仅当有 previous_video 且非纯首尾模式时有意义）
-            if previous_video is not None and previous_video.shape[0] >= 2:
+            # 运动参考：优先用 previous_video（如果给了）
+            ref_motion_latent = None
+            if has_prev and previous_video.shape[0] >= 2:
                 ref_motion = previous_video[-min(73, previous_video.shape[0]):].clone()
                 ref_motion = comfy.utils.common_upscale(
                     ref_motion.movedim(-1, 1), width, height, "bilinear", "center"
@@ -107,17 +115,21 @@ class PainterLongVideo:
                 ref_motion_latent = ref_motion_latent_temp[:, :, -19:]
 
         else:
-            # === 情况2：无 start/end → 原有逻辑 ===
+            # 分支 C：只接了 previous_video，走原逻辑
             last_frame = previous_video[-1:].clone()
             last_frame_resized = comfy.utils.common_upscale(
                 last_frame.movedim(-1, 1), width, height, "bilinear", "center"
             ).movedim(1, -1)
 
-            image_seq = torch.ones((length, height, width, last_frame_resized.shape[-1]), device=last_frame_resized.device, dtype=last_frame_resized.dtype) * 0.5
+            image_seq = torch.full(
+                (length, height, width, last_frame_resized.shape[-1]),
+                0.5, device=last_frame_resized.device, dtype=last_frame_resized.dtype
+            )
             image_seq[0] = last_frame_resized[0]
             concat_latent_image = vae.encode(image_seq[:, :, :, :3])
 
-            mask = torch.ones((1, 1, latent_timesteps, height // 8, width // 8), device=device, dtype=last_frame_resized.dtype)
+            mask = torch.ones((1, 1, latent_timesteps, height // 8, width // 8),
+                              device=device, dtype=last_frame_resized.dtype)
             mask[:, :, 0] = 0.0
 
             # 运动幅度增强
@@ -131,7 +143,7 @@ class PainterLongVideo:
                 scaled_latent = torch.clamp(scaled_latent, -6, 6)
                 concat_latent_image = torch.cat([base_latent, scaled_latent], dim=2)
 
-            # 提取运动参考帧
+            # 运动参考帧
             ref_motion = previous_video[-motion_frames:].clone()
             if ref_motion.shape[0] > 73:
                 ref_motion = ref_motion[-73:]
@@ -139,16 +151,17 @@ class PainterLongVideo:
                 ref_motion.movedim(-1, 1), width, height, "bilinear", "center"
             ).movedim(1, -1)
             if ref_motion_resized.shape[0] < 73:
-                gray_fill = torch.ones([73, height, width, 3], device=ref_motion_resized.device, dtype=ref_motion_resized.dtype) * 0.5
+                gray_fill = torch.ones([73, height, width, 3], device=ref_motion_resized.device,
+                                       dtype=ref_motion_resized.dtype) * 0.5
                 gray_fill[-ref_motion_resized.shape[0]:] = ref_motion_resized
                 ref_motion_resized = gray_fill
-            ref_motion_latent = vae.encode(ref_motion_resized[:, :, :, :3])
-            ref_motion_latent = ref_motion_latent[:, :, -19:]
+            ref_motion_latent_temp = vae.encode(ref_motion_resized[:, :, :, :3])
+            ref_motion_latent = ref_motion_latent_temp[:, :, -19:]
 
-        # === 构建 reference_latents ===
+        # ---------- 5. 构造 reference_latents ----------
         ref_latents = []
         # (a) 上一段最后一帧（始终添加）
-        last_frame_for_ref = previous_video[-1:]
+        last_frame_for_ref = previous_video[-1:] if has_prev else image[0:1]
         last_frame_for_ref = comfy.utils.common_upscale(
             last_frame_for_ref.movedim(-1, 1), width, height, "bilinear", "center"
         ).movedim(1, -1)
@@ -164,7 +177,7 @@ class PainterLongVideo:
             init_latent = vae.encode(init_img_resized[:, :, :, :3])
             ref_latents.append(init_latent)
 
-        # === 注入 conditioning ===
+        # ---------- 6. conditioning 注入 ----------
         def inject_conditioning(cond, values_dict):
             new_cond = []
             for c_tensor, c_dict in cond:

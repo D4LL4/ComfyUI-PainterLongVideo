@@ -1,8 +1,8 @@
 # PainterLongVideo Node for ComfyUI  
 # ComfyUI 的 PainterLongVideo 节点
 
-A powerful node for generating long-form videos with consistent motion, global scene coherence, and slow-motion correction in Wan 2.2-based workflows.  
-一个强大的节点，用于在基于 Wan 2.2 的工作流中生成长视频，具备运动一致性、全局场景连贯性以及慢动作修复功能。
+A powerful node for generating long-form videos with consistent motion, global scene coherence, and slow-motion correction in Wan 2.2-based workflows.  If you don’t connect to the previous_video access point, it is equivalent to a keyframe node with dynamic enhancement functionality.
+一个强大的节点，用于在基于 Wan 2.2 的工作流中生成长视频，具备运动一致性、全局场景连贯性以及慢动作修复功能。如果你不接参考视频，它就等于是一个带动态加强功能的首尾帧节点。
 
 ---
 

